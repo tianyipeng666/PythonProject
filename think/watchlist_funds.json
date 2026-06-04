@@ -1,0 +1,21 @@
+{
+  "default": {
+    "horizon": 3,
+    "target_return": 0.005,
+    "threshold": 0.55,
+    "model_type": "logistic"
+  },
+  "instruments": [
+    {"symbol": "013286"},
+    {"symbol": "001015"},
+    {"symbol": "502048"},
+    {"symbol": "001052"},
+    {"symbol": "007664"},
+    {"symbol": "021329"},
+    {"symbol": "000218"},
+    {"symbol": "018167"},
+    {"symbol": "016185"},
+    {"symbol": "008585"},
+    {"symbol": "015968"}
+  ]
+}

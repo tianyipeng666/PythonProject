@@ -97,6 +97,10 @@ def fetch_akshare_price_df(
     normalized_symbol = normalize_symbol(symbol, asset_type=asset_type)
     if asset_type == "index":
         df = _fetch_index_df(ak, normalized_symbol, start_date=start_date)
+    elif asset_type == "hk_index":
+        df = _fetch_hk_index_df(ak, normalized_symbol)
+    elif asset_type == "etf":
+        df = _fetch_etf_df(ak, normalized_symbol, adjust=adjust, start_date=start_date)
     else:
         df = ak.stock_zh_a_hist(
             symbol=normalized_symbol,
@@ -176,6 +180,10 @@ def normalize_symbol(symbol: str, asset_type: str = "stock") -> str:
     }
     if raw in aliases:
         return aliases[raw]
+    if asset_type == "hk_index":
+        return raw.upper()
+    if asset_type == "etf":
+        return raw.replace("sh", "").replace("sz", "").split(".")[0]
     if asset_type == "stock":
         return raw.replace("sh", "").replace("sz", "").split(".")[0]
     if raw.startswith(("sh", "sz", "bj")):
@@ -237,6 +245,32 @@ def _fetch_index_df(ak, symbol: str, start_date: str = "19900101"):
         except Exception as exc:  # pragma: no cover - depends on remote provider.
             errors.append(f"index_zh_a_hist: {exc}")
     raise RuntimeError("Failed to fetch index data through AkShare. " + " | ".join(errors))
+
+
+def _fetch_hk_index_df(ak, symbol: str):
+    errors = []
+    for func_name in ("stock_hk_index_daily_sina", "stock_hk_index_daily_em"):
+        func = getattr(ak, func_name, None)
+        if func is None:
+            continue
+        try:
+            return func(symbol=symbol)
+        except Exception as exc:  # pragma: no cover - depends on remote provider.
+            errors.append(f"{func_name}: {exc}")
+    raise RuntimeError("Failed to fetch Hong Kong index data through AkShare. " + " | ".join(errors))
+
+
+def _fetch_etf_df(ak, symbol: str, adjust: str = "", start_date: str = "19900101"):
+    func = getattr(ak, "fund_etf_hist_em", None)
+    if func is None:
+        raise RuntimeError("AkShare fund_etf_hist_em is not available.")
+    return func(
+        symbol=symbol,
+        period="daily",
+        start_date=start_date,
+        end_date="22220101",
+        adjust=adjust,
+    )
 
 
 def _row_to_bar(row: dict) -> PriceBar:
