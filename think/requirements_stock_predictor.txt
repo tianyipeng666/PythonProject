@@ -1,5 +1,7 @@
 akshare
 pandas
+openpyxl
+pymysql
 scikit-learn
 streamlit
 plotly
