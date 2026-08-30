@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
+
+
+DEFAULT_MIN_EXACT_HISTORY_DAYS = 365 * 5
 
 
 @dataclass(frozen=True)
@@ -16,6 +20,14 @@ class IndexSpec:
     official_valuation_code: str | None = None
     valuation_quality: str = "exact"
     valuation_note: str = ""
+    launch_date: str | None = None
+
+    def minimum_exact_history_days(self, today: date | None = None) -> int:
+        """Require five years, or nearly all available history for a young index."""
+        if not self.launch_date:
+            return DEFAULT_MIN_EXACT_HISTORY_DAYS
+        available_days = ((today or date.today()) - date.fromisoformat(self.launch_date)).days
+        return min(DEFAULT_MIN_EXACT_HISTORY_DAYS, max(365, available_days - 180))
 
 
 # target_weight 只是研究用的示例配置，不是针对个人情况的投资建议。
@@ -77,6 +89,7 @@ INDEX_SPECS: dict[str, IndexSpec] = {
         official_valuation_code="000698",
         valuation_quality="proxy",
         valuation_note="历史分位使用科创板市场PE代理；当前指数PE优先展示中证指数官网口径。",
+        launch_date="2023-08-07",
     ),
 }
 

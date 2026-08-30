@@ -39,6 +39,10 @@ class ValuationResult:
     official_pe: float | None
     official_dividend_yield: float | None
     official_date: str | None
+    analysis_pe: float
+    analysis_pe_source: str
+    history_source: str
+    history_quality: str
     earnings_yield: float
     risk_free_rate: float
     earnings_yield_spread: float

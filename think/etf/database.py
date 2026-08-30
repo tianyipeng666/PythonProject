@@ -11,8 +11,9 @@ import pandas as pd
 
 
 DATABASE_ENV = "ETF_DATABASE_URL"
-MIN_EXACT_HISTORY_ROWS = 20
+MIN_EXACT_HISTORY_ROWS = 60
 MIN_ACCUMULATED_OFFICIAL_ROWS = 250
+MIN_EXACT_HISTORY_DAYS = 365 * 5
 
 
 @dataclass(frozen=True)
@@ -250,24 +251,57 @@ class MySQLRepository:
             conn.commit()
         return len(rows)
 
-    def best_exact_source(self, code: str, min_rows: int = MIN_EXACT_HISTORY_ROWS) -> str | None:
+    def best_exact_source(
+        self,
+        code: str,
+        min_rows: int = MIN_EXACT_HISTORY_ROWS,
+        min_history_days: int = MIN_EXACT_HISTORY_DAYS,
+    ) -> str | None:
         sql = """
-        SELECT source, quality, COUNT(*) AS row_count
+        SELECT source, quality, COUNT(*) AS row_count,
+               DATEDIFF(MAX(trade_date), MIN(trade_date)) AS history_days
         FROM etf_index_valuation
         WHERE index_code = %s
           AND quality IN ('exact', 'official_snapshot')
           AND pe IS NOT NULL
         GROUP BY source, quality
-        HAVING (quality = 'exact' AND COUNT(*) >= %s)
-            OR (quality = 'official_snapshot' AND COUNT(*) >= %s)
+        HAVING ((quality = 'exact' AND COUNT(*) >= %s)
+             OR (quality = 'official_snapshot' AND COUNT(*) >= %s))
+           AND DATEDIFF(MAX(trade_date), MIN(trade_date)) >= %s
         ORDER BY row_count DESC
         LIMIT 1
         """
         with self.connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute(sql, (code, min_rows, MIN_ACCUMULATED_OFFICIAL_ROWS))
+                cursor.execute(
+                    sql,
+                    (code, min_rows, MIN_ACCUMULATED_OFFICIAL_ROWS, min_history_days),
+                )
                 row = cursor.fetchone()
         return str(row[0]) if row else None
+
+    def valuation_source_stats(self, code: str) -> list[dict]:
+        sql = """
+        SELECT source, quality, COUNT(*) AS row_count,
+               MIN(trade_date) AS start_date, MAX(trade_date) AS end_date,
+               DATEDIFF(MAX(trade_date), MIN(trade_date)) AS history_days
+        FROM etf_index_valuation
+        WHERE index_code = %s AND pe IS NOT NULL
+        GROUP BY source, quality
+        ORDER BY quality, row_count DESC
+        """
+        with self.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (code,))
+                rows = cursor.fetchall()
+        return [
+            {
+                "source": row[0], "quality": row[1], "row_count": int(row[2]),
+                "start_date": row[3].isoformat(), "end_date": row[4].isoformat(),
+                "history_days": int(row[5] or 0),
+            }
+            for row in rows
+        ]
 
     def load_valuations(self, code: str, source: str) -> pd.DataFrame:
         sql = """
@@ -282,7 +316,7 @@ class MySQLRepository:
         sql = """
         SELECT trade_date, pe, pb, dividend_yield, source
         FROM etf_index_valuation
-        WHERE index_code = %s AND quality IN ('exact', 'official_snapshot')
+        WHERE index_code = %s AND quality = 'official_snapshot'
         ORDER BY trade_date DESC, fetched_at DESC
         LIMIT 1
         """
@@ -409,7 +443,7 @@ MYSQL_SCHEMA = [
         index_code VARCHAR(16) NOT NULL,
         trade_date DATE NOT NULL,
         source VARCHAR(64) NOT NULL,
-        quality VARCHAR(16) NOT NULL,
+        quality VARCHAR(32) NOT NULL,
         pe DECIMAL(20,8) NULL,
         pb DECIMAL(20,8) NULL,
         dividend_yield DECIMAL(20,8) NULL,
@@ -419,6 +453,10 @@ MYSQL_SCHEMA = [
         CONSTRAINT fk_etf_valuation_meta FOREIGN KEY (index_code)
             REFERENCES etf_index_meta(index_code) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
+    """
+    ALTER TABLE etf_index_valuation
+        MODIFY quality VARCHAR(32) NOT NULL
     """,
     """
     CREATE TABLE IF NOT EXISTS etf_index_price (

@@ -123,7 +123,7 @@ def _build_summary(
     sheet.column_dimensions["H"].width = 14
     sheet.column_dimensions["I"].width = 11
     sheet.column_dimensions["J"].width = 52
-    sheet.column_dimensions["K"].width = 18
+    sheet.column_dimensions["K"].width = 30
     for row in range(5, end_row + 1):
         sheet.row_dimensions[row].height = 38
         for col in range(1, 12):
@@ -173,13 +173,13 @@ def _build_summary(
 
 
 def _build_detail(sheet, results) -> None:
-    sheet.merge_cells("A1:AC1")
+    sheet.merge_cells("A1:AF1")
     sheet["A1"] = "估值与市场指标明细"
     _style_title(sheet["A1"])
     sheet.row_dimensions[1].height = 32
     headers = [
         "指数代码", "指数", "ETF", "状态", "可信度", "数据日期", "PE", "精确/官方PE快照",
-        "PE分位", "PE20%", "PE中位", "PE80%", "PB", "PB分位", "股息率", "盈利收益率",
+        "PE分位", "PE20%", "PE中位", "PE80%", "PB", "PB分位", "股息率", "评分采用PE", "当前PE来源", "历史PE来源", "盈利收益率",
         "10年国债", "股债差", "综合评分", "近1日", "近5日", "近20日", "60日回撤",
         "250日回撤", "基础倍率", "大跌加仓", "建议倍率", "原因", "口径说明",
     ]
@@ -194,6 +194,7 @@ def _build_detail(sheet, results) -> None:
                 item.pb.current if item.pb else None,
                 item.pb.percentile / 100 if item.pb else None,
                 item.official_dividend_yield / 100 if item.official_dividend_yield else None,
+                item.analysis_pe, item.analysis_pe_source, item.history_source,
                 item.earnings_yield / 100, item.risk_free_rate / 100,
                 item.earnings_yield_spread / 100, item.composite_percentile / 100,
                 item.market.return_1d, item.market.return_5d, item.market.return_20d,
@@ -205,19 +206,19 @@ def _build_detail(sheet, results) -> None:
     end_row = 3 + len(results)
     _style_header(sheet, 3, len(headers))
     sheet.freeze_panes = "G4"
-    sheet.auto_filter.ref = f"A3:AC{end_row}"
+    sheet.auto_filter.ref = f"A3:AF{end_row}"
     for row in range(4, end_row + 1):
-        for col in range(1, 30):
+        for col in range(1, 33):
             cell = sheet.cell(row, col)
             cell.border = Border(bottom=THIN_GRAY)
-            cell.alignment = Alignment(vertical="center", wrap_text=col in {28, 29})
-        for col in (9, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24):
+            cell.alignment = Alignment(vertical="center", wrap_text=col in {17, 18, 31, 32})
+        for col in (9, 14, 15, 19, 20, 21, 22, 23, 24, 25, 26, 27):
             sheet.cell(row, col).number_format = "0.00%"
-        for col in (7, 8, 10, 11, 12, 13):
+        for col in (7, 8, 10, 11, 12, 13, 16):
             sheet.cell(row, col).number_format = "0.00"
         sheet.cell(row, 1).number_format = "000000"
         sheet.cell(row, 3).number_format = "000000"
-        for col in (25, 26, 27):
+        for col in (28, 29, 30):
             sheet.cell(row, col).number_format = "0.00x"
         _fill_status(sheet.cell(row, 4))
     widths = {
@@ -225,7 +226,8 @@ def _build_detail(sheet, results) -> None:
         "G": 10, "H": 17, "I": 11, "J": 10, "K": 10, "L": 10,
         "M": 10, "N": 11, "O": 11, "P": 13, "Q": 11, "R": 11,
         "S": 11, "T": 10, "U": 10, "V": 10, "W": 11, "X": 12,
-        "Y": 11, "Z": 11, "AA": 11, "AB": 34, "AC": 58,
+        "Y": 10, "Z": 11, "AA": 12, "AB": 11, "AC": 11, "AD": 11,
+        "AE": 34, "AF": 58,
     }
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
@@ -289,10 +291,16 @@ def _build_sources(sheet, results, warnings, failures) -> None:
     sheet.append(headers)
     for item in results:
         storage = f"etf_index_valuation.index_code={item.code}"
-        method = (
-            "从指数公司或持牌数据库导出到任意外部路径，再用"
-            "--import-valuation-csv导入MySQL；CSV字段为date,pe,pb,dividend_yield"
-        )
+        if item.history_source == "lixinger_index_mcw":
+            method = (
+                "理杏仁开放平台已自动同步指数市值加权PE/PB/股息率；"
+                "后续运行自动增量更新MySQL"
+            )
+        else:
+            method = (
+                "从指数公司或持牌数据库导出到任意外部路径，再用"
+                "--import-valuation-csv导入MySQL；CSV字段为date,pe,pb,dividend_yield"
+            )
         sheet.append([item.name, int(item.code), item.confidence, storage, method, item.note])
     end_row = 3 + len(results)
     _style_header(sheet, 3, 6)
@@ -312,6 +320,7 @@ def _build_sources(sheet, results, warnings, failures) -> None:
     sheet.cell(source_row, 1).value = "参考网址"
     _style_section(sheet.cell(source_row, 1))
     urls = [
+        "https://www.lixinger.com/api/open-api/html-doc/cn/index/fundamental（理杏仁指数基本面API）",
         "https://www.csindex.com.cn/（中证指数：上证、沪深300、红利、科创100）",
         "https://www.cnindex.com.cn/（国证指数：创业板指）",
         "https://yield.chinabond.com.cn/（中债国债收益率曲线）",

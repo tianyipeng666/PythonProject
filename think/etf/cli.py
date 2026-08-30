@@ -52,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--db-check", action="store_true", help="建表、检查连接后退出")
     parser.add_argument(
+        "--data-quality-check",
+        action="store_true",
+        help="检查MySQL中各指数估值来源、覆盖期和可信度后退出",
+    )
+    parser.add_argument(
         "--import-valuation-csv",
         default=None,
         help="将外部指数级历史估值CSV直接导入MySQL后退出",
@@ -96,6 +101,9 @@ def main(argv: list[str] | None = None) -> int:
                     f"MySQL连接正常：database={db_info['database']} "
                     f"version={db_info['version']} server_time={db_info['server_time']}"
                 )
+                return 0
+            if args.data_quality_check:
+                _print_data_quality(repository, get_specs(args.indices))
                 return 0
         elif args.offline:
             raise ValueError("--offline必须连接MySQL，不能与--no-database同时使用")
@@ -212,6 +220,30 @@ def _import_valuation_csv(
         source=source, quality="exact",
     )
     print(f"已导入MySQL：{spec.code} {spec.name}，{count}条，source={source}")
+
+
+def _print_data_quality(repository: MySQLRepository, specs) -> None:
+    from think.etf.database import MIN_EXACT_HISTORY_ROWS
+
+    print("估值数据质量检查")
+    print("高可信历史标准：统一指数口径、至少60期；通常至少5年，年轻指数覆盖自发布以来。")
+    for spec in specs:
+        rows = repository.valuation_source_stats(spec.code)
+        print(f"\n{spec.code} {spec.name}")
+        if not rows:
+            print("  无估值数据")
+            continue
+        for row in rows:
+            high = (
+                row["quality"] == "exact"
+                and row["row_count"] >= MIN_EXACT_HISTORY_ROWS
+                and row["history_days"] >= spec.minimum_exact_history_days()
+            )
+            label = "高可信" if high else "未达到高可信历史标准"
+            print(
+                f"  {row['source']} [{row['quality']}] {row['row_count']}期 "
+                f"{row['start_date']}~{row['end_date']}：{label}"
+            )
 
 
 def _print_summary(
